@@ -1,18 +1,53 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "./supabase";
 
-type PhotoItem = {
+type Category = "photo" | "movie" | "game";
+
+type ContentItem = {
+  id: number;
+  category: Category;
+  title: string;
+  status: string | null;
+  note: string;
+  image_url: string | null;
+  sort_order: number;
+  created_at?: string;
+};
+
+type SiteSettings = {
+  id?: number;
+  relationship_start: string;
+  welcome_title: string;
+  welcome_subtitle: string;
+  secret_message: string;
+  music_embed_url: string | null;
+  map_embed_url: string | null;
+};
+
+const FALLBACK_SETTINGS: SiteSettings = {
+  relationship_start: "2024-03-15",
+  welcome_title: "Hoş geldin Selin ❤️",
+  welcome_subtitle: "Bu küçük site sadece bizim için hazırlandı.",
+  secret_message:
+    "15 Mart 2024'te başlayan bu hikaye hayatımın en güzel hikayesi oldu. Seninle geçen her gün daha değerli.",
+  music_embed_url: "https://www.youtube.com/embed/HB_GnnhNz-8",
+  map_embed_url:
+    "https://maps.google.com/maps?q=Kadir%20Has%20University&t=&z=15&ie=UTF8&iwloc=&output=embed",
+};
+
+type PhotoForm = {
   id: number;
   title: string;
   note: string;
-  image: string;
+  image_url: string;
 };
 
-type MediaItem = {
+type MediaForm = {
   id: number;
   title: string;
   status: string;
   note: string;
-  image: string;
+  image_url: string;
 };
 
 type HeartItem = {
@@ -21,146 +56,166 @@ type HeartItem = {
   y: number;
 };
 
-const ADMIN_EMAIL = "serdarumutduman@gmail.com";
-const ADMIN_PASSWORD = "SelinSerdar4ever<3";
-
-const defaultPhotos: PhotoItem[] = [
-  {
-    id: 1,
-    title: "En sevdiğim kare",
-    note: "Buraya en sevdiğin fotoğraf notunu yazabilirsin.",
-    image:
-      "https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?auto=format&fit=crop&w=1200&q=80",
-  },
-];
-
-const defaultMovies: MediaItem[] = [
-  {
-    id: 1,
-    title: "La La Land",
-    status: "İzledik",
-    note: "Birlikte izlediğimiz güzel bir film.",
-    image: "",
-  },
-];
-
-const defaultGames: MediaItem[] = [
-  {
-    id: 1,
-    title: "It Takes Two",
-    status: "Oynadık",
-    note: "Birlikte oynadığımız en tatlı oyunlardan biri.",
-    image: "",
-  },
-];
-
 export default function App() {
-  const [photos, setPhotos] = useState<PhotoItem[]>(defaultPhotos);
-  const [movies, setMovies] = useState<MediaItem[]>(defaultMovies);
-  const [games, setGames] = useState<MediaItem[]>(defaultGames);
+  const [items, setItems] = useState<ContentItem[]>([]);
+  const [settings, setSettings] = useState<SiteSettings>(FALLBACK_SETTINGS);
 
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
   const [showMessage, setShowMessage] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
-  const [selectedPhoto, setSelectedPhoto] = useState<PhotoItem | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<ContentItem | null>(null);
   const [playMusic, setPlayMusic] = useState(false);
 
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminError, setAdminError] = useState("");
 
-  const [photoForm, setPhotoForm] = useState<PhotoItem>({
+  const [photoForm, setPhotoForm] = useState<PhotoForm>({
     id: 0,
     title: "",
     note: "",
-    image: "",
+    image_url: "",
   });
 
-  const [movieForm, setMovieForm] = useState<MediaItem>({
+  const [movieForm, setMovieForm] = useState<MediaForm>({
     id: 0,
     title: "",
     status: "İzlenecek",
     note: "",
-    image: "",
+    image_url: "",
   });
 
-  const [gameForm, setGameForm] = useState<MediaItem>({
+  const [gameForm, setGameForm] = useState<MediaForm>({
     id: 0,
     title: "",
     status: "Oynanacak",
     note: "",
-    image: "",
+    image_url: "",
   });
 
   const [mouseHearts, setMouseHearts] = useState<HeartItem[]>([]);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
-  const startDate = useMemo(() => new Date("2024-03-15"), []);
-  const today = new Date();
+  const photoItems = useMemo(
+    () =>
+      items
+        .filter((item) => item.category === "photo")
+        .sort((a, b) => a.sort_order - b.sort_order),
+    [items]
+  );
+
+  const movieItems = useMemo(
+    () =>
+      items
+        .filter((item) => item.category === "movie")
+        .sort((a, b) => a.sort_order - b.sort_order),
+    [items]
+  );
+
+  const gameItems = useMemo(
+    () =>
+      items
+        .filter((item) => item.category === "game")
+        .sort((a, b) => a.sort_order - b.sort_order),
+    [items]
+  );
+
+  const startDate = useMemo(
+    () => new Date(settings.relationship_start || "2024-03-15"),
+    [settings.relationship_start]
+  );
 
   const daysTogether = Math.max(
     1,
-    Math.floor(
-      (today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-    )
+    Math.floor((Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24))
   );
 
   const nextAnniversaryDays = useMemo(() => {
     const now = new Date();
     const next = new Date(now.getFullYear(), 2, 15);
-    if (next <= now) {
-      next.setFullYear(now.getFullYear() + 1);
+    if (next <= now) next.setFullYear(now.getFullYear() + 1);
+    return Math.ceil((next.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  }, []);
+
+  async function loadEverything() {
+    setLoading(true);
+    setError("");
+
+    const [{ data: contentData, error: contentError }, { data: settingsData, error: settingsError }, { data: sessionData }] =
+      await Promise.all([
+        supabase.from("site_content").select("*").order("sort_order", { ascending: true }),
+        supabase.from("site_settings").select("*").eq("id", 1).maybeSingle(),
+        supabase.auth.getSession(),
+      ]);
+
+    if (contentError) setError(contentError.message);
+    if (settingsError) setError(settingsError.message);
+
+    if (contentData) setItems(contentData as ContentItem[]);
+    if (settingsData) {
+      setSettings({
+        relationship_start: settingsData.relationship_start,
+        welcome_title: settingsData.welcome_title,
+        welcome_subtitle: settingsData.welcome_subtitle,
+        secret_message: settingsData.secret_message,
+        music_embed_url: settingsData.music_embed_url,
+        map_embed_url: settingsData.map_embed_url,
+      });
     }
-    return Math.ceil(
-      (next.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-    );
-  }, []);
 
-  useEffect(() => {
-    const savedPhotos = localStorage.getItem("ss-photos");
-    const savedMovies = localStorage.getItem("ss-movies");
-    const savedGames = localStorage.getItem("ss-games");
-
-    if (savedPhotos) setPhotos(JSON.parse(savedPhotos));
-    if (savedMovies) setMovies(JSON.parse(savedMovies));
-    if (savedGames) setGames(JSON.parse(savedGames));
-
-    const timer = setTimeout(() => {
-      setShowWelcome(false);
-    }, 2200);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("ss-photos", JSON.stringify(photos));
-  }, [photos]);
-
-  useEffect(() => {
-    localStorage.setItem("ss-movies", JSON.stringify(movies));
-  }, [movies]);
-
-  useEffect(() => {
-    localStorage.setItem("ss-games", JSON.stringify(games));
-  }, [games]);
-
-  const handleLogin = () => {
-    if (
-      adminEmail.trim().toLowerCase() === ADMIN_EMAIL &&
-      adminPassword === ADMIN_PASSWORD
-    ) {
+    if (sessionData?.session?.user) {
       setIsAdmin(true);
-      setAdminError("");
-      setAdminPassword("");
-    } else {
-      setAdminError("Email veya şifre yanlış.");
+      if (!adminEmail) {
+        setAdminEmail(sessionData.session.user.email || "");
+      }
     }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadEverything();
+
+    const timer = setTimeout(() => setShowWelcome(false), 2200);
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAdmin(!!session?.user);
+    });
+
+    return () => {
+      clearTimeout(timer);
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogin = async () => {
+    setNotice("");
+    setError("");
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: adminEmail.trim(),
+      password: adminPassword,
+    });
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setAdminPassword("");
+    setIsAdmin(true);
+    setNotice("Admin girişi başarılı.");
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setIsAdmin(false);
     setAdminPassword("");
-    setAdminError("");
+    setNotice("Çıkış yapıldı.");
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -168,7 +223,6 @@ export default function App() {
 
     const id = Date.now() + Math.random();
     const heart = { id, x: e.clientX, y: e.clientY };
-
     setMouseHearts((prev) => [...prev.slice(-14), heart]);
 
     setTimeout(() => {
@@ -176,27 +230,38 @@ export default function App() {
     }, 1000);
   };
 
-  const handlePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPhotoForm((prev) => ({
-        ...prev,
-        image: String(reader.result || ""),
-      }));
-    };
-    reader.readAsDataURL(file);
+    if (!file.type.startsWith("image/")) {
+      setError("Sadece görsel dosyası yüklenebilir.");
+      return;
+    }
+
+    const ext = file.name.split(".").pop() || "jpg";
+    const path = `uploads/${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("anniversary-media")
+      .upload(path, file, { upsert: false });
+
+    if (uploadError) {
+      setError(uploadError.message);
+      return;
+    }
+
+    const { data } = supabase.storage.from("anniversary-media").getPublicUrl(path);
+    setPhotoForm((prev) => ({ ...prev, image_url: data.publicUrl }));
+    setNotice("Fotoğraf yüklendi.");
   };
 
   const resetPhotoForm = () => {
-    setPhotoForm({
-      id: 0,
-      title: "",
-      note: "",
-      image: "",
-    });
+    setPhotoForm({ id: 0, title: "", note: "", image_url: "" });
   };
 
   const resetMovieForm = () => {
@@ -205,7 +270,7 @@ export default function App() {
       title: "",
       status: "İzlenecek",
       note: "",
-      image: "",
+      image_url: "",
     });
   };
 
@@ -215,80 +280,68 @@ export default function App() {
       title: "",
       status: "Oynanacak",
       note: "",
-      image: "",
+      image_url: "",
     });
   };
 
-  const savePhoto = () => {
-    if (!photoForm.title.trim() || !photoForm.note.trim()) return;
+  const saveContent = async (
+    category: Category,
+    form: { id: number; title: string; note: string; status?: string; image_url: string }
+  ) => {
+    setError("");
+    setNotice("");
 
-    if (photoForm.id) {
-      setPhotos((prev) =>
-        prev.map((item) => (item.id === photoForm.id ? photoForm : item))
-      );
-    } else {
-      setPhotos((prev) => [
-        ...prev,
-        {
-          ...photoForm,
-          id: Date.now(),
-        },
-      ]);
+    if (!form.title.trim() || !form.note.trim()) {
+      setError("Başlık ve not zorunlu.");
+      return;
     }
 
-    resetPhotoForm();
-  };
+    const sort_order =
+      items.filter((item) => item.category === category).length + 1;
 
-  const saveMovie = () => {
-    if (!movieForm.title.trim() || !movieForm.note.trim()) return;
+    const payload = {
+      category,
+      title: form.title.trim(),
+      status: form.status ? form.status.trim() : null,
+      note: form.note.trim(),
+      image_url: form.image_url.trim() || null,
+      sort_order,
+    };
 
-    if (movieForm.id) {
-      setMovies((prev) =>
-        prev.map((item) => (item.id === movieForm.id ? movieForm : item))
-      );
+    let dbError = null;
+
+    if (form.id) {
+      const { error } = await supabase
+        .from("site_content")
+        .update(payload)
+        .eq("id", form.id);
+      dbError = error;
     } else {
-      setMovies((prev) => [
-        ...prev,
-        {
-          ...movieForm,
-          id: Date.now(),
-        },
-      ]);
+      const { error } = await supabase.from("site_content").insert(payload);
+      dbError = error;
     }
 
-    resetMovieForm();
-  };
-
-  const saveGame = () => {
-    if (!gameForm.title.trim() || !gameForm.note.trim()) return;
-
-    if (gameForm.id) {
-      setGames((prev) =>
-        prev.map((item) => (item.id === gameForm.id ? gameForm : item))
-      );
-    } else {
-      setGames((prev) => [
-        ...prev,
-        {
-          ...gameForm,
-          id: Date.now(),
-        },
-      ]);
+    if (dbError) {
+      setError(dbError.message);
+      return;
     }
 
-    resetGameForm();
+    setNotice("Kaydedildi.");
+    await loadEverything();
+
+    if (category === "photo") resetPhotoForm();
+    if (category === "movie") resetMovieForm();
+    if (category === "game") resetGameForm();
   };
 
-  const removePhoto = (id: number) => {
-    setPhotos((prev) => prev.filter((item) => item.id !== id));
-  };
-
-  const removeMovie = (id: number) => {
-    setMovies((prev) => prev.filter((item) => item.id !== id));
-  };
-
-  const removeGame = (id: number) => {
-    setGames((prev) => prev.filter((item) => item.id !== id));
+  const deleteContent = async (id: number) => {
+    const { error } = await supabase.from("site_content").delete().eq("id", id);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setNotice("Silindi.");
+    await loadEverything();
   };
 
   return (
@@ -320,11 +373,9 @@ export default function App() {
           <div>
             <div style={{ fontSize: "60px" }}>💗</div>
             <h1 style={{ fontSize: "42px", marginBottom: "12px" }}>
-              Hoş geldin Selin ❤️
+              {settings.welcome_title}
             </h1>
-            <p style={{ fontSize: "18px" }}>
-              Bu küçük site sadece bizim için hazırlandı.
-            </p>
+            <p style={{ fontSize: "18px" }}>{settings.welcome_subtitle}</p>
           </div>
         </div>
       )}
@@ -368,28 +419,13 @@ export default function App() {
       <style>
         {`
           @keyframes floatHeart {
-            0% {
-              transform: translateY(0);
-              opacity: 0;
-            }
-            15% {
-              opacity: 0.35;
-            }
-            100% {
-              transform: translateY(-110vh);
-              opacity: 0;
-            }
+            0% { transform: translateY(0); opacity: 0; }
+            15% { opacity: 0.35; }
+            100% { transform: translateY(-110vh); opacity: 0; }
           }
-
           @keyframes mouseHeart {
-            0% {
-              opacity: 1;
-              transform: translate(-50%, -50%) scale(0.8);
-            }
-            100% {
-              opacity: 0;
-              transform: translate(-50%, -100px) scale(1.4);
-            }
+            0% { opacity: 1; transform: translate(-50%, -50%) scale(0.8); }
+            100% { opacity: 0; transform: translate(-50%, -100px) scale(1.4); }
           }
         `}
       </style>
@@ -456,12 +492,12 @@ export default function App() {
           </div>
         </section>
 
-        {playMusic && (
+        {playMusic && settings.music_embed_url && (
           <div style={{ marginTop: "30px", textAlign: "center" }}>
             <iframe
               width="320"
               height="180"
-              src="https://www.youtube.com/embed/HB_GnnhNz-8"
+              src={settings.music_embed_url}
               title="music"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
@@ -481,7 +517,7 @@ export default function App() {
 
           <iframe
             title="Kadir Has Üniversitesi"
-            src="https://maps.google.com/maps?q=Kadir%20Has%20University&t=&z=15&ie=UTF8&iwloc=&output=embed"
+            src={settings.map_embed_url || ""}
             style={{
               width: "100%",
               height: "320px",
@@ -508,13 +544,7 @@ export default function App() {
               }}
             >
               <h3>Fotoğraf Ekle / Düzenle</h3>
-              <div
-                style={{
-                  display: "grid",
-                  gap: "10px",
-                  marginTop: "12px",
-                }}
-              >
+              <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
                 <input
                   placeholder="Başlık"
                   value={photoForm.title}
@@ -533,9 +563,9 @@ export default function App() {
                 />
                 <input
                   placeholder="Görsel linki"
-                  value={photoForm.image}
+                  value={photoForm.image_url}
                   onChange={(e) =>
-                    setPhotoForm((prev) => ({ ...prev, image: e.target.value }))
+                    setPhotoForm((prev) => ({ ...prev, image_url: e.target.value }))
                   }
                   style={{ padding: "12px", borderRadius: "12px", border: "1px solid #ddd" }}
                 />
@@ -547,7 +577,7 @@ export default function App() {
                 />
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
-                    onClick={savePhoto}
+                    onClick={() => saveContent("photo", photoForm)}
                     style={{
                       padding: "10px 16px",
                       borderRadius: "12px",
@@ -583,7 +613,7 @@ export default function App() {
               gap: "18px",
             }}
           >
-            {photos.map((photo) => (
+            {photoItems.map((photo) => (
               <div
                 key={photo.id}
                 style={{
@@ -593,9 +623,9 @@ export default function App() {
                   boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
                 }}
               >
-                {photo.image ? (
+                {photo.image_url ? (
                   <img
-                    src={photo.image}
+                    src={photo.image_url}
                     alt={photo.title}
                     onClick={() => setSelectedPhoto(photo)}
                     style={{
@@ -614,7 +644,14 @@ export default function App() {
                   {isAdmin && (
                     <div style={{ display: "flex", gap: "10px", marginTop: "12px" }}>
                       <button
-                        onClick={() => setPhotoForm(photo)}
+                        onClick={() =>
+                          setPhotoForm({
+                            id: photo.id,
+                            title: photo.title,
+                            note: photo.note,
+                            image_url: photo.image_url || "",
+                          })
+                        }
                         style={{
                           padding: "10px 14px",
                           borderRadius: "12px",
@@ -626,7 +663,7 @@ export default function App() {
                         Düzenle
                       </button>
                       <button
-                        onClick={() => removePhoto(photo.id)}
+                        onClick={() => deleteContent(photo.id)}
                         style={{
                           padding: "10px 14px",
                           borderRadius: "12px",
@@ -688,15 +725,15 @@ export default function App() {
                 />
                 <input
                   placeholder="Film fotoğraf linki"
-                  value={movieForm.image}
+                  value={movieForm.image_url}
                   onChange={(e) =>
-                    setMovieForm((prev) => ({ ...prev, image: e.target.value }))
+                    setMovieForm((prev) => ({ ...prev, image_url: e.target.value }))
                   }
                   style={{ padding: "12px", borderRadius: "12px", border: "1px solid #ddd" }}
                 />
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
-                    onClick={saveMovie}
+                    onClick={() => saveContent("movie", movieForm)}
                     style={{
                       padding: "10px 16px",
                       borderRadius: "12px",
@@ -732,7 +769,7 @@ export default function App() {
               gap: "18px",
             }}
           >
-            {movies.map((movie) => (
+            {movieItems.map((movie) => (
               <div
                 key={movie.id}
                 style={{
@@ -742,9 +779,9 @@ export default function App() {
                   boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
                 }}
               >
-                {movie.image ? (
+                {movie.image_url ? (
                   <img
-                    src={movie.image}
+                    src={movie.image_url}
                     alt={movie.title}
                     style={{
                       width: "100%",
@@ -762,7 +799,15 @@ export default function App() {
                   {isAdmin && (
                     <div style={{ display: "flex", gap: "10px", marginTop: "12px" }}>
                       <button
-                        onClick={() => setMovieForm(movie)}
+                        onClick={() =>
+                          setMovieForm({
+                            id: movie.id,
+                            title: movie.title,
+                            status: movie.status || "",
+                            note: movie.note,
+                            image_url: movie.image_url || "",
+                          })
+                        }
                         style={{
                           padding: "10px 14px",
                           borderRadius: "12px",
@@ -774,7 +819,7 @@ export default function App() {
                         Düzenle
                       </button>
                       <button
-                        onClick={() => removeMovie(movie.id)}
+                        onClick={() => deleteContent(movie.id)}
                         style={{
                           padding: "10px 14px",
                           borderRadius: "12px",
@@ -836,15 +881,15 @@ export default function App() {
                 />
                 <input
                   placeholder="Oyun fotoğraf linki"
-                  value={gameForm.image}
+                  value={gameForm.image_url}
                   onChange={(e) =>
-                    setGameForm((prev) => ({ ...prev, image: e.target.value }))
+                    setGameForm((prev) => ({ ...prev, image_url: e.target.value }))
                   }
                   style={{ padding: "12px", borderRadius: "12px", border: "1px solid #ddd" }}
                 />
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
-                    onClick={saveGame}
+                    onClick={() => saveContent("game", gameForm)}
                     style={{
                       padding: "10px 16px",
                       borderRadius: "12px",
@@ -880,7 +925,7 @@ export default function App() {
               gap: "18px",
             }}
           >
-            {games.map((game) => (
+            {gameItems.map((game) => (
               <div
                 key={game.id}
                 style={{
@@ -890,9 +935,9 @@ export default function App() {
                   boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
                 }}
               >
-                {game.image ? (
+                {game.image_url ? (
                   <img
-                    src={game.image}
+                    src={game.image_url}
                     alt={game.title}
                     style={{
                       width: "100%",
@@ -910,7 +955,15 @@ export default function App() {
                   {isAdmin && (
                     <div style={{ display: "flex", gap: "10px", marginTop: "12px" }}>
                       <button
-                        onClick={() => setGameForm(game)}
+                        onClick={() =>
+                          setGameForm({
+                            id: game.id,
+                            title: game.title,
+                            status: game.status || "",
+                            note: game.note,
+                            image_url: game.image_url || "",
+                          })
+                        }
                         style={{
                           padding: "10px 14px",
                           borderRadius: "12px",
@@ -922,7 +975,7 @@ export default function App() {
                         Düzenle
                       </button>
                       <button
-                        onClick={() => removeGame(game.id)}
+                        onClick={() => deleteContent(game.id)}
                         style={{
                           padding: "10px 14px",
                           borderRadius: "12px",
@@ -989,10 +1042,6 @@ export default function App() {
                 >
                   Giriş Yap
                 </button>
-
-                {adminError && (
-                  <p style={{ color: "crimson", margin: 0 }}>{adminError}</p>
-                )}
               </div>
             ) : (
               <div style={{ textAlign: "center" }}>
@@ -1013,6 +1062,17 @@ export default function App() {
             )}
           </div>
         </section>
+
+        {(notice || error) && (
+          <div style={{ marginTop: "20px", textAlign: "center" }}>
+            {notice ? <p style={{ color: "green" }}>{notice}</p> : null}
+            {error ? <p style={{ color: "crimson" }}>{error}</p> : null}
+          </div>
+        )}
+
+        {loading && (
+          <p style={{ textAlign: "center", marginTop: "30px" }}>Yükleniyor...</p>
+        )}
       </div>
 
       {showMessage && (
@@ -1041,10 +1101,7 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2>Selin ❤️</h2>
-            <p style={{ lineHeight: 1.7 }}>
-              15 Mart 2024'te başlayan bu hikaye hayatımın en güzel
-              hikayesi oldu. Seninle geçen her gün daha değerli.
-            </p>
+            <p style={{ lineHeight: 1.7 }}>{settings.secret_message}</p>
             <button
               onClick={() => setShowMessage(false)}
               style={{
@@ -1078,7 +1135,7 @@ export default function App() {
           }}
         >
           <img
-            src={selectedPhoto.image}
+            src={selectedPhoto.image_url || ""}
             alt={selectedPhoto.title}
             style={{
               maxWidth: "90%",
