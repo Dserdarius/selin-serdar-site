@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabase";
 
-type Category = "photo" | "movie" | "game";
+type Category = "photo" | "movie" | "game" | "restaurant";
 
 type ContentItem = {
   id: number;
@@ -11,6 +11,10 @@ type ContentItem = {
   note: string;
   image_url: string | null;
   sort_order: number;
+  address?: string | null;
+  rating_user1?: number | null;
+  rating_user2?: number | null;
+  favorite_food?: string | null;
   created_at?: string;
 };
 
@@ -50,6 +54,17 @@ type MediaForm = {
   image_url: string;
 };
 
+type RestaurantForm = {
+  id: number;
+  title: string;
+  note: string;
+  image_url: string;
+  address: string;
+  rating_user1: string;
+  rating_user2: string;
+  favorite_food: string;
+};
+
 type HeartItem = {
   id: number;
   x: number;
@@ -65,7 +80,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [showMessage, setShowMessage] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
-  const [selectedPhoto, setSelectedPhoto] = useState<ContentItem | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<ContentItem | null>(null); 
+  const [photoIndex, setPhotoIndex] = useState(0);
   const [playMusic, setPlayMusic] = useState(false);
 
   const [adminEmail, setAdminEmail] = useState("");
@@ -95,6 +111,17 @@ export default function App() {
     image_url: "",
   });
 
+  const [restaurantForm, setRestaurantForm] = useState<RestaurantForm>({
+    id: 0,
+    title: "",
+    note: "",
+    image_url: "",
+    address: "",
+    rating_user1: "",
+    rating_user2: "",
+    favorite_food: "",
+  });
+
   const [mouseHearts, setMouseHearts] = useState<HeartItem[]>([]);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -105,6 +132,16 @@ export default function App() {
         .sort((a, b) => a.sort_order - b.sort_order),
     [items]
   );
+  
+  const nextPhoto = () => {
+    if (!photoItems.length) return;
+    setPhotoIndex((prev) => (prev + 1) % photoItems.length);
+  };
+
+  const prevPhoto = () => {
+    if (!photoItems.length) return;
+    setPhotoIndex((prev) => (prev - 1 + photoItems.length) % photoItems.length);
+  };
 
   const movieItems = useMemo(
     () =>
@@ -122,6 +159,14 @@ export default function App() {
     [items]
   );
 
+  const restaurantItems = useMemo(
+  () =>
+    items
+      .filter((item) => item.category === "restaurant")
+      .sort((a, b) => a.sort_order - b.sort_order),
+    [items]
+  );
+  
   const startDate = useMemo(
     () => new Date(settings.relationship_start || "2024-03-15"),
     [settings.relationship_start]
@@ -191,7 +236,18 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
+  
+  useEffect(() => {
+    if (photoItems.length === 0) {
+      setPhotoIndex(0);
+      return;
+    }
 
+    if (photoIndex > photoItems.length - 1) {
+      setPhotoIndex(0);
+    }
+  }, [photoItems, photoIndex]);
+  
   const handleLogin = async () => {
     setNotice("");
     setError("");
@@ -284,54 +340,105 @@ export default function App() {
     });
   };
 
+  const resetRestaurantForm = () => {
+    setRestaurantForm({
+      id: 0,
+      title: "",
+      note: "",
+      image_url: "",
+      address: "",
+      rating_user1: "",
+      rating_user2: "",
+      favorite_food: "",
+    });
+  };
+
   const saveContent = async (
-    category: Category,
-    form: { id: number; title: string; note: string; status?: string; image_url: string }
-  ) => {
-    setError("");
-    setNotice("");
+  category: Category,
+  form: {
+    id: number;
+    title: string;
+    note: string;
+    status?: string;
+    image_url: string;
+    address?: string;
+    rating_user1?: string;
+    rating_user2?: string;
+    favorite_food?: string;
+  }
+) => {
+  setError("");
+  setNotice("");
 
-    if (!form.title.trim() || !form.note.trim()) {
-      setError("Başlık ve not zorunlu.");
-      return;
-    }
+  if (!form.title.trim() || !form.note.trim()) {
+    setError("Başlık ve not zorunlu.");
+    return;
+  }
 
-    const sort_order =
-      items.filter((item) => item.category === category).length + 1;
+  const rating1 =
+    form.rating_user1 && form.rating_user1.trim() !== ""
+      ? Number(form.rating_user1)
+      : null;
 
-    const payload = {
-      category,
-      title: form.title.trim(),
-      status: form.status ? form.status.trim() : null,
-      note: form.note.trim(),
-      image_url: form.image_url.trim() || null,
-      sort_order,
-    };
+  const rating2 =
+    form.rating_user2 && form.rating_user2.trim() !== ""
+      ? Number(form.rating_user2)
+      : null;
 
-    let dbError = null;
+  if (rating1 !== null && (isNaN(rating1) || rating1 < 0 || rating1 > 5)) {
+    setError("1. puan 0 ile 5 arasında olmalı.");
+    return;
+  }
 
-    if (form.id) {
-      const { error } = await supabase
-        .from("site_content")
-        .update(payload)
-        .eq("id", form.id);
-      dbError = error;
-    } else {
-      const { error } = await supabase.from("site_content").insert(payload);
-      dbError = error;
-    }
+  if (rating2 !== null && (isNaN(rating2) || rating2 < 0 || rating2 > 5)) {
+    setError("2. puan 0 ile 5 arasında olmalı.");
+    return;
+  }
 
-    if (dbError) {
-      setError(dbError.message);
-      return;
-    }
+  const sort_order =
+    form.id
+      ? items.find((item) => item.id === form.id)?.sort_order ||
+        items.filter((item) => item.category === category).length + 1
+      : items.filter((item) => item.category === category).length + 1;
 
-    setNotice("Kaydedildi.");
-    await loadEverything();
+  const payload = {
+    category,
+    title: form.title.trim(),
+    status: form.status ? form.status.trim() : null,
+    note: form.note.trim(),
+    image_url: form.image_url.trim() || null,
+    sort_order,
+    address: form.address?.trim() || null,
+    rating_user1: rating1,
+    rating_user2: rating2,
+    favorite_food: form.favorite_food?.trim() || null,
+  };
 
-    if (category === "photo") resetPhotoForm();
-    if (category === "movie") resetMovieForm();
-    if (category === "game") resetGameForm();
+  let dbError = null;
+
+  if (form.id) {
+    const { error } = await supabase
+      .from("site_content")
+      .update(payload)
+      .eq("id", form.id);
+    dbError = error;
+  } else {
+    const { error } = await supabase.from("site_content").insert(payload);
+    dbError = error;
+  }
+
+  if (dbError) {
+    setError(dbError.message);
+    return;
+  }
+
+  setNotice("Kaydedildi.");
+  await loadEverything();
+
+  if (category === "photo") resetPhotoForm();
+  if (category === "movie") resetMovieForm();
+  if (category === "game") resetGameForm();
+  if (category === "restaurant") resetRestaurantForm();
   };
 
   const deleteContent = async (id: number) => {
@@ -606,80 +713,235 @@ export default function App() {
             </div>
           )}
 
-          <div
+          {photoItems.length > 0 ? (
+  <div
+    style={{
+      background: "white",
+      borderRadius: "24px",
+      overflow: "hidden",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+    }}
+  >
+    <div style={{ position: "relative" }}>
+      {photoItems[photoIndex].image_url ? (
+        <img
+          src={photoItems[photoIndex].image_url || ""}
+          alt={photoItems[photoIndex].title}
+          onClick={() => setSelectedPhoto(photoItems[photoIndex])}
+          style={{
+            width: "100%",
+            height: "420px",
+            objectFit: "cover",
+            display: "block",
+            cursor: "pointer",
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            height: "420px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#a64d79",
+            background: "#fff7fb",
+          }}
+        >
+          Görsel bulunamadı
+        </div>
+      )}
+
+      {photoItems.length > 1 && (
+        <>
+          <button
+            onClick={prevPhoto}
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-              gap: "18px",
+              position: "absolute",
+              top: "50%",
+              left: "14px",
+              transform: "translateY(-50%)",
+              width: "44px",
+              height: "44px",
+              borderRadius: "999px",
+              border: "none",
+              background: "rgba(255,255,255,0.88)",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+              cursor: "pointer",
+              fontSize: "20px",
+              color: "#5b2145",
             }}
           >
-            {photoItems.map((photo) => (
-              <div
-                key={photo.id}
-                style={{
-                  background: "white",
-                  borderRadius: "22px",
-                  overflow: "hidden",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
-                }}
-              >
-                {photo.image_url ? (
-                  <img
-                    src={photo.image_url}
-                    alt={photo.title}
-                    onClick={() => setSelectedPhoto(photo)}
-                    style={{
-                      width: "100%",
-                      height: "240px",
-                      objectFit: "cover",
-                      cursor: "pointer",
-                    }}
-                  />
-                ) : null}
+            ‹
+          </button>
 
-                <div style={{ padding: "16px" }}>
-                  <h3>{photo.title}</h3>
-                  <p style={{ color: "#7a4b68" }}>{photo.note}</p>
+          <button
+            onClick={nextPhoto}
+            style={{
+              position: "absolute",
+              top: "50%",
+              right: "14px",
+              transform: "translateY(-50%)",
+              width: "44px",
+              height: "44px",
+              borderRadius: "999px",
+              border: "none",
+              background: "rgba(255,255,255,0.88)",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+              cursor: "pointer",
+              fontSize: "20px",
+              color: "#5b2145",
+            }}
+          >
+            ›
+          </button>
+        </>
+      )}
+    </div>
 
-                  {isAdmin && (
-                    <div style={{ display: "flex", gap: "10px", marginTop: "12px" }}>
-                      <button
-                        onClick={() =>
-                          setPhotoForm({
-                            id: photo.id,
-                            title: photo.title,
-                            note: photo.note,
-                            image_url: photo.image_url || "",
-                          })
-                        }
-                        style={{
-                          padding: "10px 14px",
-                          borderRadius: "12px",
-                          border: "1px solid #ccc",
-                          background: "white",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Düzenle
-                      </button>
-                      <button
-                        onClick={() => deleteContent(photo.id)}
-                        style={{
-                          padding: "10px 14px",
-                          borderRadius: "12px",
-                          border: "1px solid #f3b2c7",
-                          background: "#fff0f5",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Sil
-                      </button>
-                    </div>
-                  )}
+    <div style={{ padding: "20px" }}>
+      <h3 style={{ marginBottom: "8px", fontSize: "24px" }}>
+        {photoItems[photoIndex].title}
+      </h3>
+
+      <p style={{ color: "#7a4b68", marginBottom: "14px", lineHeight: 1.6 }}>
+        {photoItems[photoIndex].note}
+      </p>
+
+      {photoItems.length > 1 && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            gap: "8px",
+            flexWrap: "wrap",
+            marginBottom: "16px",
+          }}
+        >
+          {photoItems.map((photo, index) => (
+            <button
+              key={photo.id}
+              onClick={() => setPhotoIndex(index)}
+              aria-label={`${index + 1}. fotoğrafa git`}
+              style={{
+                width: "12px",
+                height: "12px",
+                borderRadius: "999px",
+                border: "none",
+                cursor: "pointer",
+                background: index === photoIndex ? "#e75480" : "#f6bfd1",
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      {photoItems.length > 1 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))",
+            gap: "10px",
+          }}
+        >
+          {photoItems.map((photo, index) => (
+            <button
+              key={photo.id}
+              onClick={() => setPhotoIndex(index)}
+              style={{
+                padding: 0,
+                border:
+                  index === photoIndex
+                    ? "2px solid #e75480"
+                    : "2px solid transparent",
+                borderRadius: "14px",
+                overflow: "hidden",
+                background: "white",
+                cursor: "pointer",
+              }}
+            >
+              {photo.image_url ? (
+                <img
+                  src={photo.image_url}
+                  alt={photo.title}
+                  style={{
+                    width: "100%",
+                    height: "80px",
+                    objectFit: "cover",
+                    display: "block",
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    height: "80px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "12px",
+                    color: "#a64d79",
+                    background: "#fff7fb",
+                  }}
+                >
+                  Görsel yok
                 </div>
-              </div>
-            ))}
-          </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {isAdmin && (
+        <div style={{ display: "flex", gap: "10px", marginTop: "18px", flexWrap: "wrap" }}>
+          <button
+            onClick={() =>
+              setPhotoForm({
+                id: photoItems[photoIndex].id,
+                title: photoItems[photoIndex].title,
+                note: photoItems[photoIndex].note,
+                image_url: photoItems[photoIndex].image_url || "",
+              })
+            }
+            style={{
+              padding: "10px 14px",
+              borderRadius: "12px",
+              border: "1px solid #ccc",
+              background: "white",
+              cursor: "pointer",
+            }}
+          >
+            Düzenle
+          </button>
+
+          <button
+            onClick={() => deleteContent(photoItems[photoIndex].id)}
+            style={{
+              padding: "10px 14px",
+              borderRadius: "12px",
+              border: "1px solid #f3b2c7",
+              background: "#fff0f5",
+              cursor: "pointer",
+            }}
+          >
+            Sil
+          </button>
+        </div>
+      )}
+    </div>
+  </div>
+) : (
+  <div
+    style={{
+      background: "white",
+      borderRadius: "22px",
+      padding: "24px",
+      textAlign: "center",
+      color: "#a64d79",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+    }}
+  >
+    Henüz fotoğraf eklenmemiş.
+  </div>
+)}
         </section>
 
         <section style={{ marginTop: "55px" }}>
@@ -992,6 +1254,335 @@ export default function App() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section style={{ marginTop: "55px" }}>
+  <h2 style={{ fontSize: "32px", marginBottom: "18px" }}>
+    Favori Restoranlarımız
+  </h2>
+
+  {isAdmin && (
+    <div
+      style={{
+        background: "white",
+        borderRadius: "22px",
+        padding: "18px",
+        marginBottom: "18px",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+        display: "grid",
+        gap: "12px",
+      }}
+    >
+      <input
+        placeholder="Restoran adı"
+        value={restaurantForm.title}
+        onChange={(e) =>
+          setRestaurantForm({ ...restaurantForm, title: e.target.value })
+        }
+        style={{
+          padding: "12px 14px",
+          borderRadius: "12px",
+          border: "1px solid #ddd",
+        }}
+      />
+
+      <textarea
+        placeholder="Bu mekanı neden seviyoruz?"
+        value={restaurantForm.note}
+        onChange={(e) =>
+          setRestaurantForm({ ...restaurantForm, note: e.target.value })
+        }
+        rows={3}
+        style={{
+          padding: "12px 14px",
+          borderRadius: "12px",
+          border: "1px solid #ddd",
+          resize: "vertical",
+        }}
+      />
+
+      <input
+        placeholder="Adres / semt / konum"
+        value={restaurantForm.address}
+        onChange={(e) =>
+          setRestaurantForm({ ...restaurantForm, address: e.target.value })
+        }
+        style={{
+          padding: "12px 14px",
+          borderRadius: "12px",
+          border: "1px solid #ddd",
+        }}
+      />
+
+      <input
+        placeholder="Favori ürünümüz"
+        value={restaurantForm.favorite_food}
+        onChange={(e) =>
+          setRestaurantForm({
+            ...restaurantForm,
+            favorite_food: e.target.value,
+          })
+        }
+        style={{
+          padding: "12px 14px",
+          borderRadius: "12px",
+          border: "1px solid #ddd",
+        }}
+      />
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: "12px",
+        }}
+      >
+        <input
+          type="number"
+          min="0"
+          max="5"
+          step="0.1"
+          placeholder="Selin puanın (0-5)"
+          value={restaurantForm.rating_user1}
+          onChange={(e) =>
+            setRestaurantForm({
+              ...restaurantForm,
+              rating_user1: e.target.value,
+            })
+          }
+          style={{
+            padding: "12px 14px",
+            borderRadius: "12px",
+            border: "1px solid #ddd",
+          }}
+        />
+
+        <input
+          type="number"
+          min="0"
+          max="5"
+          step="0.1"
+          placeholder="Serdar puanı (0-5)"
+          value={restaurantForm.rating_user2}
+          onChange={(e) =>
+            setRestaurantForm({
+              ...restaurantForm,
+              rating_user2: e.target.value,
+            })
+          }
+          style={{
+            padding: "12px 14px",
+            borderRadius: "12px",
+            border: "1px solid #ddd",
+          }}
+        />
+      </div>
+
+      <input
+        placeholder="Fotoğraf URL"
+        value={restaurantForm.image_url}
+        onChange={(e) =>
+          setRestaurantForm({ ...restaurantForm, image_url: e.target.value })
+        }
+        style={{
+          padding: "12px 14px",
+          borderRadius: "12px",
+          border: "1px solid #ddd",
+        }}
+      />
+
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <button
+          onClick={() => saveContent("restaurant", restaurantForm)}
+          style={{
+            padding: "12px 16px",
+            borderRadius: "14px",
+            border: "none",
+            background: "#e75480",
+            color: "white",
+            cursor: "pointer",
+            fontWeight: 700,
+          }}
+        >
+          {restaurantForm.id ? "Güncelle" : "Restoran Ekle"}
+        </button>
+
+        {restaurantForm.id ? (
+          <button
+            onClick={resetRestaurantForm}
+            style={{
+              padding: "12px 16px",
+              borderRadius: "14px",
+              border: "1px solid #ddd",
+              background: "white",
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+          >
+            İptal
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )}
+
+  {restaurantItems.length > 0 ? (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+        gap: "18px",
+      }}
+    >
+      {restaurantItems.map((restaurant) => {
+        const rating1 = restaurant.rating_user1 ?? 0;
+        const rating2 = restaurant.rating_user2 ?? 0;
+        const average =
+          restaurant.rating_user1 != null && restaurant.rating_user2 != null
+            ? ((rating1 + rating2) / 2).toFixed(1)
+            : null;
+
+        return (
+          <div
+            key={restaurant.id}
+            style={{
+              background: "white",
+              borderRadius: "22px",
+              overflow: "hidden",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+            }}
+          >
+            {restaurant.image_url && (
+              <img
+                src={restaurant.image_url}
+                alt={restaurant.title}
+                style={{
+                width: "100%",
+                height: "220px",
+                objectFit: "cover",
+                display: "block",
+                }}
+              />
+            )}
+
+            <div style={{ padding: "18px" }}>
+              <h3 style={{ marginBottom: "8px", fontSize: "24px" }}>
+                {restaurant.title}
+              </h3>
+
+              {average ? (
+                <div
+                  style={{
+                    marginBottom: "10px",
+                    color: "#b03a68",
+                    fontWeight: 700,
+                  }}
+                >
+                  ⭐ Ortalama: {average} / 5
+                </div>
+              ) : null}
+
+              <div
+                style={{
+                  display: "grid",
+                  gap: "6px",
+                  marginBottom: "12px",
+                  color: "#7a4b68",
+                }}
+              >
+                {restaurant.rating_user1 != null ? (
+                  <div>💖 Senin puanın: {restaurant.rating_user1} / 5</div>
+                ) : null}
+
+                {restaurant.rating_user2 != null ? (
+                  <div>💘 Onun puanı: {restaurant.rating_user2} / 5</div>
+                ) : null}
+
+                {restaurant.address ? (
+                  <div>📍 {restaurant.address}</div>
+                ) : null}
+
+                {restaurant.favorite_food ? (
+                  <div>🍽️ Favorimiz: {restaurant.favorite_food}</div>
+                ) : null}
+              </div>
+
+              <p style={{ color: "#7a4b68", lineHeight: 1.6 }}>
+                {restaurant.note}
+              </p>
+
+              {isAdmin && (
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    marginTop: "14px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button
+                    onClick={() =>
+                      setRestaurantForm({
+                        id: restaurant.id,
+                        title: restaurant.title,
+                        note: restaurant.note,
+                        image_url: restaurant.image_url || "",
+                        address: restaurant.address || "",
+                        rating_user1:
+                          restaurant.rating_user1 != null
+                            ? String(restaurant.rating_user1)
+                            : "",
+                        rating_user2:
+                          restaurant.rating_user2 != null
+                            ? String(restaurant.rating_user2)
+                            : "",
+                        favorite_food: restaurant.favorite_food || "",
+                      })
+                    }
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "12px",
+                      border: "1px solid #ccc",
+                      background: "white",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Düzenle
+                  </button>
+
+                  <button
+                    onClick={() => deleteContent(restaurant.id)}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "12px",
+                      border: "1px solid #f3b2c7",
+                      background: "#fff0f5",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Sil
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  ) : (
+    <div
+      style={{
+        background: "white",
+        borderRadius: "22px",
+        padding: "24px",
+        textAlign: "center",
+        color: "#a64d79",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+      }}
+    >
+      Henüz restoran eklenmemiş.
+    </div>
+  )}
         </section>
 
         <section style={{ marginTop: "60px" }}>
